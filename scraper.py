@@ -111,31 +111,36 @@ class CognosScraper:
         self.page.goto(URL_REPORTE, wait_until="domcontentloaded", timeout=60_000)
         self.page.wait_for_timeout(ESPERA_CARGA_PAGINA * 1000)
 
-    def descubrir_selectores(self):
-        selects = self.page.query_selector_all("select")
-        self._select_ids = {}
-        for sel in selects:
-            sel_id = sel.get_attribute("id") or ""
-            options = sel.query_selector_all("option")
-            if not options: continue
-            texts = [o.text_content().strip() for o in options[:5]]
-            
-            if all(t.isdigit() and 2010 <= int(t) <= 2030 for t in texts if t.isdigit()) and any(t.isdigit() for t in texts):
-                self._select_ids["anio"] = sel_id
-            elif any("Semana" in t for t in texts):
-                self._select_ids["semana"] = sel_id
-            elif any(t in TIPOS_ESTABLECIMIENTO for t in texts):
-                self._select_ids["tipo_est"] = sel_id
-            elif any(t in ("Talcahuano", "Concepción", "Arauco", "Metropolitano Central", "Metropolitano Suroriente", "Osorno", "Arica") for t in texts):
-                self._select_ids["servicio"] = sel_id
+    def descubrir_selectores(self, reintentos: int = 5):
+        for _ in range(reintentos):
+            selects = self.page.query_selector_all("select")
+            self._select_ids = {}
+            for sel in selects:
+                sel_id = sel.get_attribute("id") or ""
+                options = sel.query_selector_all("option")
+                if not options: continue
+                texts = [o.text_content().strip() for o in options[:5]]
+                
+                if all(t.isdigit() and 2010 <= int(t) <= 2030 for t in texts if t.isdigit()) and any(t.isdigit() for t in texts):
+                    self._select_ids["anio"] = sel_id
+                elif any("Semana" in t for t in texts):
+                    self._select_ids["semana"] = sel_id
+                elif any(t in TIPOS_ESTABLECIMIENTO for t in texts):
+                    self._select_ids["tipo_est"] = sel_id
+                elif any(t in ("Talcahuano", "Concepción", "Arauco", "Metropolitano Central", "Metropolitano Suroriente", "Osorno", "Arica") for t in texts):
+                    self._select_ids["servicio"] = sel_id
 
-        mapped_ids = set(self._select_ids.values())
-        for sel in selects:
-            sel_id = sel.get_attribute("id") or ""
-            if sel_id and sel_id not in mapped_ids:
-                if len(sel.query_selector_all("option")) > 0:
-                    self._select_ids["establecimiento"] = sel_id
-                    break
+            mapped_ids = set(self._select_ids.values())
+            for sel in selects:
+                sel_id = sel.get_attribute("id") or ""
+                if sel_id and sel_id not in mapped_ids:
+                    if len(sel.query_selector_all("option")) > 0:
+                        self._select_ids["establecimiento"] = sel_id
+                        break
+            
+            if "establecimiento" in self._select_ids and "anio" in self._select_ids:
+                return
+            self.page.wait_for_timeout(1000)
 
     def _get_select(self, nombre):
         return self.page.locator(f"#{self._select_ids[nombre]}")
@@ -199,51 +204,47 @@ class CognosScraper:
 
     def descargar_establecimiento(self, anio: int, est: dict, ruta_destino: Path):
         # 1. Deseleccionar cualquier establecimiento previo para evitar descargas acumuladas
-        link_id = self._select_ids["establecimiento"].replace("PRMT_SV_", "PRMT_SV_LINK_DESELECT_")
-        link = self.page.locator(f"#{link_id}")
-        if link.count() > 0: 
-            link.click()
-            self.page.wait_for_timeout(500)
+        if "establecimiento" in self._select_ids:
+            link_id = self._select_ids["establecimiento"].replace("PRMT_SV_", "PRMT_SV_LINK_DESELECT_")
+            link = self.page.locator(f"#{link_id}")
+            if link.count() > 0: 
+                link.click()
+                self.page.wait_for_timeout(400)
             
-        # 2. Seleccionar el nuevo
-        self._get_select("establecimiento").select_option(value=est["value"])
+            # 2. Seleccionar el nuevo
+            self._get_select("establecimiento").select_option(value=est["value"])
         
         # 3. Boton "Nueva solicitud"
-        boton = self.page.locator("button:has-text('Nueva solicitud')")
-        if not boton.count(): boton = self.page.locator("input[value='Nueva solicitud']")
-        
-        # Obtener el link excel
+        boton = self.page.locator("input[value='Nueva solicitud'], button:has-text('Nueva solicitud')")
         link_excel = self.page.locator("a:has-text('Descargar como Excel')")
         
-        boton.click()
+        boton.first.click()
 
-        # 4. Esperar dinámicamente al botón de Excel (como usamos Volver, el link antiguo no existe)
+        # 4. Esperar dinámicamente al botón de Excel
         link_excel.wait_for(state="visible", timeout=TIMEOUT_REPORTE)
-        
-        # Pausa extra de seguridad
-        self.page.wait_for_timeout(2000)
+        self.page.wait_for_timeout(1000)
         
         ruta_destino.parent.mkdir(parents=True, exist_ok=True)
-        with self.page.expect_popup(timeout=15_000) as popup_info:
-            link_excel.click()
-        popup = popup_info.value
         
-        with popup.expect_download(timeout=TIMEOUT_DESCARGA) as download_info:
-            pass
+        # 5. Capturar descarga de forma robusta en el contexto
+        with self.context.expect_event("download", timeout=TIMEOUT_DESCARGA) as download_info:
+            link_excel.click()
         download = download_info.value
         download.save_as(str(ruta_destino))
         
-        try: popup.close()
-        except: pass
+        # Cerrar posibles popups residuales
+        for p in self.context.pages:
+            if p != self.page:
+                try: p.close()
+                except: pass
         
         if ruta_destino.exists() and ruta_destino.stat().st_size > 0:
             # Clickear en "Volver" para regresar a la pantalla de prompts limpia
-            btn_volver = self.page.locator("a:has-text('Volver')")
-            if not btn_volver.count(): btn_volver = self.page.locator("button:has-text('Volver')")
+            btn_volver = self.page.locator("a:has-text('Volver'), button:has-text('Volver')")
             if btn_volver.count() > 0:
-                btn_volver.click()
-                # Esperar a que los prompts vuelvan a aparecer
-                self.page.wait_for_selector("button:has-text('Nueva solicitud')", timeout=TIMEOUT_REPORTE)
+                btn_volver.first.click()
+                # Esperar a que los prompts vuelvan a aparecer (input o button)
+                self.page.wait_for_selector("input[value='Nueva solicitud'], button:has-text('Nueva solicitud')", timeout=30_000)
                 self.page.wait_for_timeout(1000)
                 # Re-descubrir selectores
                 self.descubrir_selectores()
