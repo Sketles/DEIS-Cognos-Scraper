@@ -203,16 +203,19 @@ class CognosScraper:
         return establecimientos
 
     def descargar_establecimiento(self, anio: int, est: dict, ruta_destino: Path):
-        # 1. Deseleccionar cualquier establecimiento previo para evitar descargas acumuladas
+        # 1. Deseleccionar cualquier establecimiento previo
         if "establecimiento" in self._select_ids:
             link_id = self._select_ids["establecimiento"].replace("PRMT_SV_", "PRMT_SV_LINK_DESELECT_")
             link = self.page.locator(f"#{link_id}")
             if link.count() > 0: 
                 link.click()
-                self.page.wait_for_timeout(400)
+                # Pausa vital para que Cognos JS asimile la limpieza del estado
+                self.page.wait_for_timeout(1500)
             
             # 2. Seleccionar el nuevo
             self._get_select("establecimiento").select_option(value=est["value"])
+            # Pausa vital para que Cognos asimile la nueva seleccion antes de enviar
+            self.page.wait_for_timeout(1500)
         
         # 3. Boton "Nueva solicitud"
         boton = self.page.locator("input[value='Nueva solicitud'], button:has-text('Nueva solicitud')")
@@ -239,15 +242,11 @@ class CognosScraper:
                 except: pass
         
         if ruta_destino.exists() and ruta_destino.stat().st_size > 0:
-            # Clickear en "Volver" para regresar a la pantalla de prompts limpia
-            btn_volver = self.page.locator("a:has-text('Volver'), button:has-text('Volver')")
-            if btn_volver.count() > 0:
-                btn_volver.first.click()
-                # Esperar a que los prompts vuelvan a aparecer (input o button)
-                self.page.wait_for_selector("input[value='Nueva solicitud'], button:has-text('Nueva solicitud')", timeout=30_000)
-                self.page.wait_for_timeout(1000)
-                # Re-descubrir selectores
-                self.descubrir_selectores()
+            # Cognos mantiene los prompts en la misma página, NO clickeamos Volver
+            # para no irnos al WordPress del DEIS. Simplemente re-descubrimos selectores
+            # por si el DOM cambió, y estamos listos para el siguiente loop.
+            self.page.wait_for_timeout(1500)
+            self.descubrir_selectores()
             return True
         return False
 
