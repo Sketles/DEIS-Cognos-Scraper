@@ -203,33 +203,24 @@ class CognosScraper:
         return establecimientos
 
     def descargar_establecimiento(self, anio: int, est: dict, ruta_destino: Path):
-        # 1. Deseleccionar cualquier establecimiento previo
-        if "establecimiento" in self._select_ids:
-            link_id = self._select_ids["establecimiento"].replace("PRMT_SV_", "PRMT_SV_LINK_DESELECT_")
-            link = self.page.locator(f"#{link_id}")
-            if link.count() > 0: 
-                link.click()
-                # Pausa vital para que Cognos JS asimile la limpieza del estado
-                self.page.wait_for_timeout(1500)
-            
-            # 2. Seleccionar el nuevo
-            self._get_select("establecimiento").select_option(value=est["value"])
-            # Pausa vital para que Cognos asimile la nueva seleccion antes de enviar
-            self.page.wait_for_timeout(1500)
+        # 1. Seleccionar el hospital directamente (la sesión viene 100% virgen desde ejecutar_scraper)
+        self._get_select("establecimiento").select_option(value=est["value"])
+        # Pausa vital para que Cognos asimile la nueva seleccion antes de enviar
+        self.page.wait_for_timeout(1500)
         
-        # 3. Boton "Nueva solicitud"
+        # 2. Boton "Nueva solicitud"
         boton = self.page.locator("input[value='Nueva solicitud'], button:has-text('Nueva solicitud')")
         link_excel = self.page.locator("a:has-text('Descargar como Excel')")
         
         boton.first.click()
 
-        # 4. Esperar dinámicamente al botón de Excel
+        # 3. Esperar dinámicamente al botón de Excel
         link_excel.wait_for(state="visible", timeout=TIMEOUT_REPORTE)
         self.page.wait_for_timeout(1000)
         
         ruta_destino.parent.mkdir(parents=True, exist_ok=True)
         
-        # 5. Capturar descarga de forma robusta en el contexto
+        # 4. Capturar descarga de forma robusta en el contexto
         with self.context.expect_event("download", timeout=TIMEOUT_DESCARGA) as download_info:
             link_excel.click()
         download = download_info.value
@@ -242,11 +233,6 @@ class CognosScraper:
                 except: pass
         
         if ruta_destino.exists() and ruta_destino.stat().st_size > 0:
-            # Cognos mantiene los prompts en la misma página, NO clickeamos Volver
-            # para no irnos al WordPress del DEIS. Simplemente re-descubrimos selectores
-            # por si el DOM cambió, y estamos listos para el siguiente loop.
-            self.page.wait_for_timeout(1500)
-            self.descubrir_selectores()
             return True
         return False
 
@@ -433,6 +419,8 @@ def ejecutar_scraper(config):
                 
                 task_id = progress.add_task(f"Descargando {anio}...", total=len(establecimientos))
                 
+                is_first_hospital = True
+                
                 for est in establecimientos:
                     nombre_archivo = f"{anio}_{sanitizar_nombre(est['nombre'])}.xlsx"
                     ruta = DIR_DESCARGAS / str(anio) / nombre_archivo
@@ -449,18 +437,22 @@ def ejecutar_scraper(config):
                     exito = False
                     for intento in range(MAX_REINTENTOS):
                         try:
+                            # Recarga de seguridad ABSOLUTA (excepto el primer hospital porque ya cargamos la página)
+                            if not is_first_hospital:
+                                progress.console.print(f"[dim]  ↻ Reiniciando sesión para {est['nombre']}...[/dim]")
+                                scraper.navegar_al_reporte()
+                                scraper.aplicar_filtros_base(anio)
+                                
                             if scraper.descargar_establecimiento(anio, est, ruta):
                                 exito = True
+                                is_first_hospital = False
                                 break
                         except Exception as e:
                             logger.error(f"Intento {intento+1} falló: {e}")
                             if intento < MAX_REINTENTOS - 1:
                                 progress.console.print(f"[yellow]⚠ Reintentando {est['nombre']} ({intento+2}/{MAX_REINTENTOS})...[/yellow]")
-                                # Recuperar estado: si fallo el popup, intentamos recargar
-                                try:
-                                    scraper.navegar_al_reporte()
-                                    scraper.aplicar_filtros_base(anio)
-                                except: pass
+                            is_first_hospital = False # Obligar recarga total en el reintento
+
                                 
                     if exito:
                         scraper.total_descargados += 1
