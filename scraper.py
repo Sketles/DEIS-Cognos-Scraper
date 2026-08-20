@@ -211,10 +211,23 @@ class CognosScraper:
         boton = self.page.locator("input[value='Nueva solicitud'], button:has-text('Nueva solicitud')")
         boton.first.click()
 
-        # 3. ESPERA CRÍTICA: Cognos demora 10-12s en procesar y renderizar el reporte del hospital
-        # antes de que la función runExcel() pueda exportar los datos reales.
-        self.page.wait_for_timeout(12000)
-
+        # 3. ESPERA DINÁMICA: Cognos demora un tiempo variable en procesar y renderizar el reporte.
+        # En vez de usar un tiempo fijo de 12s que causa exportaciones corruptas cuando el servidor se satura,
+        # ahora "miramos" el icono de carga de Cognos (progress.gif) y esperamos hasta que desaparezca.
+        try:
+            loading = self.page.locator("img[src*='progress.gif'], div.modalWaitPage").first
+            # Le damos hasta 4 segundos para que el modal de carga aparezca en pantalla
+            loading.wait_for(state="visible", timeout=4000)
+            self.log.debug("Icono de carga detectado, esperando a que desaparezca (espera dinámica)...")
+            # Esperamos a que termine. Si el servidor se pone lento, esperará con paciencia hasta 90 segundos.
+            loading.wait_for(state="hidden", timeout=90000)
+            self.log.debug("Icono de carga desapareció. Reporte listo para exportar.")
+            self.page.wait_for_timeout(1000) # Pausa cortita de estabilización de la UI
+        except Exception:
+            # Si el modal carga demasiado rápido o no logramos capturarlo, aplicamos un fallback corto
+            self.log.debug("Icono de carga no detectado o desapareció muy rápido. Fallback activado.")
+            self.page.wait_for_timeout(2000) # Fallback corto
+            
         # 4. Botón de Excel
         link_excel = self.page.locator("a:has-text('Descargar como Excel')")
         link_excel.wait_for(state="visible", timeout=TIMEOUT_REPORTE)
