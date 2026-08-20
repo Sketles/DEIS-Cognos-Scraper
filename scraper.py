@@ -205,22 +205,23 @@ class CognosScraper:
     def descargar_establecimiento(self, anio: int, est: dict, ruta_destino: Path):
         # 1. Seleccionar el hospital directamente (la sesión viene 100% virgen desde ejecutar_scraper)
         self._get_select("establecimiento").select_option(value=est["value"])
-        # Pausa vital ultra-larga para que Cognos asimile la nueva seleccion antes de enviar
-        self.page.wait_for_timeout(4000)
+        self.page.wait_for_timeout(2000)
         
         # 2. Boton "Nueva solicitud"
         boton = self.page.locator("input[value='Nueva solicitud'], button:has-text('Nueva solicitud')")
-        link_excel = self.page.locator("a:has-text('Descargar como Excel')")
-        
         boton.first.click()
 
-        # 3. Esperar dinámicamente al botón de Excel
+        # 3. ESPERA CRÍTICA: Cognos demora 10-12s en procesar y renderizar el reporte del hospital
+        # antes de que la función runExcel() pueda exportar los datos reales.
+        self.page.wait_for_timeout(12000)
+
+        # 4. Botón de Excel
+        link_excel = self.page.locator("a:has-text('Descargar como Excel')")
         link_excel.wait_for(state="visible", timeout=TIMEOUT_REPORTE)
-        self.page.wait_for_timeout(1000)
         
         ruta_destino.parent.mkdir(parents=True, exist_ok=True)
         
-        # 4. Capturar descarga de forma robusta en el contexto
+        # 5. Capturar descarga de forma robusta en el contexto
         with self.context.expect_event("download", timeout=TIMEOUT_DESCARGA) as download_info:
             link_excel.click()
         download = download_info.value
