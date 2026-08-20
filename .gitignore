@@ -1,0 +1,8 @@
+descargas/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+.vscode/
+playwright-log.txt
+*.log
