@@ -145,13 +145,33 @@ class CognosScraper:
     def _get_select(self, nombre):
         return self.page.locator(f"#{self._select_ids[nombre]}")
 
+    def _click_option_safely(self, select_name: str, label: str = None, value: str = None):
+        """Engaña a Cognos Dojo haciendo un clic visual REAL en la opción además de setear el valor."""
+        sel = self._get_select(select_name)
+        id_sel = sel.get_attribute("id")
+        
+        opt = None
+        if label:
+            sel.select_option(label=label)
+            opt = self.page.locator(f"select#{id_sel} option", has_text=label)
+        elif value:
+            sel.select_option(value=value)
+            opt = self.page.locator(f"select#{id_sel} option[value=\"{value}\"]")
+            
+        if opt and opt.count() > 0:
+            try: opt.first.click(timeout=1000)
+            except: pass
+        
+        # Siempre forzar eventos de JS por si acaso
+        sel.evaluate("el => { el.dispatchEvent(new Event('change', {bubbles: true})); el.dispatchEvent(new MouseEvent('click', {bubbles: true})); }")
+
     def aplicar_filtros_base(self, anio: int):
         """Aplica filtros y retorna la lista de establecimientos reales resultantes."""
         self.log.info(f"[CONFIG] Aplicando filtros base para {anio}...")
         self.descubrir_selectores()
         
         # 1. Año
-        self._get_select("anio").select_option(label=str(anio))
+        self._click_option_safely("anio", label=str(anio))
         self.page.wait_for_timeout(3000)
         self.descubrir_selectores()
 
@@ -162,7 +182,7 @@ class CognosScraper:
             if link.count() > 0: link.click()
             else: self._get_select("semana").evaluate("el => { for(let o of el.options) o.selected = true; }")
         else:
-            self._get_select("semana").select_option(label=self.config["semanas"])
+            self._click_option_safely("semana", label=self.config["semanas"])
         
         # 3. Edad (Siempre todas)
         checkboxes = self.page.query_selector_all("input[role='checkbox']") or self.page.query_selector_all("input[type='checkbox']")
@@ -181,13 +201,13 @@ class CognosScraper:
                 }}
                 return null;
             }}""")
-            if val: sel_serv.select_option(value=val)
+            if val: self._click_option_safely("servicio", value=val)
         self.page.wait_for_timeout(4000)
         self.descubrir_selectores()
 
         # 5. Tipo de Establecimiento
         if self.config["tipo_est"] != "TODOS":
-            self._get_select("tipo_est").select_option(label=self.config["tipo_est"])
+            self._click_option_safely("tipo_est", label=self.config["tipo_est"])
         else:
             link_id = self._select_ids["tipo_est"].replace("PRMT_SV_", "PRMT_SV_LINK_SELECT_")
             link = self.page.locator(f"#{link_id}")
@@ -204,9 +224,9 @@ class CognosScraper:
 
     def descargar_establecimiento(self, anio: int, est: dict, ruta_destino: Path):
         # 1. Seleccionar el hospital directamente (la sesión viene 100% virgen desde ejecutar_scraper)
-        self._get_select("establecimiento").select_option(value=est["value"])
+        self._click_option_safely("establecimiento", value=est["value"])
         # Pausa vital para que Cognos asimile la nueva seleccion antes de enviar
-        self.page.wait_for_timeout(1500)
+        self.page.wait_for_timeout(2000)
         
         # 2. Boton "Nueva solicitud"
         boton = self.page.locator("input[value='Nueva solicitud'], button:has-text('Nueva solicitud')")
