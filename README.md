@@ -1,59 +1,63 @@
-# ❖ DEIS Cognos Scraper - Chile
+# DEIS Cognos Scraper - Chile
 
-Automatizador interactivo de descargas de reportes oficiales de **Atenciones de Urgencia** desde el portal IBM Cognos de DEIS (Ministerio de Salud de Chile). 
-
+Automatizador interactivo y robusto de descargas de reportes oficiales de **Atenciones de Urgencia** desde el portal IBM Cognos de DEIS (Ministerio de Salud de Chile).
 
 ---
 
-## ► Requisitos e Instalación
+## Requisitos e Instalación
 
-Tener instalado **Python 3.10+** . 
+Requiere **Python 3.10+**.
 
 1. **Instalar dependencias:**
    ```bash
    pip install -r requirements.txt
    ```
-2. **Instalar el motor de navegación:**
+2. **Instalar el motor de navegación de Playwright:**
    ```bash
    playwright install chromium
    ```
 
 ---
 
-## ◆ Cómo usarlo
+## Uso
 
-Ejecutar el script principal en terminal.
+Ejecutar el script principal en la terminal:
 
 ```bash
 python scraper.py
 ```
 
-### El asistente preguntará:
-1. **Servicio de Salud:** (Ej: Metropolitano Suroriente, u opción de descargar todo Chile).
-2. **Año Estadístico:** (Ej: 2016, un rango como 2020-2023, o Todos los años).
-3. **Tipo de Establecimiento:** (Todos los tipos, o filtrar por Hospital, SAPU, SAR, etc.).
-4. **Establecimientos:** Elegir de la lista dinámica detectada en tiempo real o descargarlos todos automáticamente, uno por uno.
+### Modos y Opciones Interactivas:
+1. **Selección de Servicio de Salud:** Permite seleccionar un servicio específico (ej: *Metropolitano Suroriente*) o la totalidad de servicios del país.
+2. **Años Estadísticos:**
+   - **Opción 1:** Todos los años consolidados en un único archivo Excel (2015-2025, matriz completa de 276 filas x 586 columnas).
+   - **Opción 2:** Todos los años descargados en archivos separados por año.
+   - **Opción 3 / 4:** Año específico o rango personalizado (ej: 2020-2023).
+3. **Tipo de Establecimiento:** Todos los tipos o filtrado específico (Hospital, SAPU, SAR, etc.).
+4. **Establecimientos:** Descarga automática 1 a 1 de todos los centros detectados dinámicamente o selección de uno específico.
 
 ---
 
-## ■ Estructura del Proyecto
+## Estructura del Proyecto
 
 ```text
-cognos/
-├── descargas/           # Carpeta donde se organizan automáticamente los archivos .xlsx
-│   ├── 2015/
-│   ├── 2016/
-│   └── log.txt          # Registro histórico de descargas exitosas y errores
-├── requirements.txt     # Dependencias del proyecto (Playwright, Rich)
-├── scraper.py           # Script principal interactivo
-└── README.md            # Documentación
+DEIS-Cognos-Scraper/
+├── descargas/           # Directorio donde se organizan automáticamente los archivos .xlsx
+│   ├── 2015-2025/       # Archivos consolidados multi-anuales (276 filas x 586 columnas)
+│   ├── 2024/            # Archivos anuales individuales
+│   └── log.txt          # Registro detallado de ejecución y descargas
+├── requirements.txt     # Dependencias (playwright, rich, pandas, openpyxl)
+├── scraper.py           # Script principal con arquitectura de evasión de resets Cognos
+├── AGENTS.md            # Contexto de arquitectura y flujo para asistentes IA
+└── README.md            # Documentación general
 ```
 
 ---
 
-## ◈ Características Destacadas
+## Características Técnicas
 
-- **Interfaz Interactiva (UI):** Uso de la librería `rich` para menús amigables, tablas de resumen y barras de progreso en tiempo real.
-- **Listas Dinámicas (Live Fetch):** El script se conecta al servidor para leer la lista *real* de establecimientos dependiendo del Servicio de Salud que elijas, en vez de usar listas desactualizadas.
-- **Auto-recuperación (Resume):** Si cancelas la descarga a la mitad y vuelves a ejecutarlo, el script reconoce los archivos ya descargados y se los salta, retomando donde quedó.
-- **Caché Inteligente (Fast Mode):** Reutiliza la misma sesión de Cognos limpiando el estado dinámicamente mediante el botón Volver para evitar corrupción de datos. Descarga cada archivo de forma segura en ~45s.
+- **Matriz Completa de Datos (276 x 586):** Extracción completa de causas, semanas estadísticas (1 a 53 para 2015-2025) y desgloses por tramo de edad.
+- **Evasión de Resets de Estado (Dojo Bypass):** Inyección DOM directa para evitar que el framework Dojo de IBM Cognos resetee las selecciones multi-anuales.
+- **Listas Dinámicas en Tiempo Real:** Detección en vivo de los establecimientos reales del servicio de salud seleccionado.
+- **Gestión de Descargas y Recuperación:** Salto automático de archivos previamente descargados y reintentos ante saturación del servidor.
+- **Sincronización Dinámica:** Monitoreo activo de estados de carga (`progress.gif`) para evitar tiempos muertos innecesarios.

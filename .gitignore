@@ -6,3 +6,5 @@ __pycache__/
 .vscode/
 playwright-log.txt
 *.log
+*.xlsx
+test_*.py
